@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyIdToken } from "@/lib/firebase/auth-server";
 import { buildSubscriptionGiftUrl } from "@/lib/subscription/link-token";
+import { getAppBaseUrl } from "@/lib/subscription/app-url";
 
 /**
  * Authenticated endpoint for the mobile app to generate a gift subscription link.
@@ -21,7 +22,7 @@ export async function POST(request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const baseUrl = body?.baseUrl || process.env.NEXT_PUBLIC_APP_URL;
+    const baseUrl = getAppBaseUrl(body?.baseUrl);
     const url = buildSubscriptionGiftUrl(decoded.uid, baseUrl);
 
     return NextResponse.json({ url, userId: decoded.uid });

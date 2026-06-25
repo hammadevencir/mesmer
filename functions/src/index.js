@@ -1,4 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const { defineString } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const Stripe = require("stripe");
@@ -6,24 +7,20 @@ const { processStripeEvent } = require("./stripeWebhook");
 
 initializeApp();
 
+const stripeSecretKey = defineString("STRIPE_SECRET_KEY", { default: "" });
+const stripeWebhookSecret = defineString("STRIPE_WEBHOOK_SECRET", { default: "" });
+const functionsRegion = defineString("FUNCTIONS_REGION", { default: "europe-west1" });
+
 /**
  * Stripe webhook — updates `subscriptions/{userId}` for web gift purchases.
  *
  * Configure in Stripe Dashboard → Webhooks:
- *   URL: https://<region>-<project>.cloudfunctions.net/stripeSubscriptionWebhook
- * Events:
- *   - checkout.session.completed
- *   - invoice.paid
- *   - customer.subscription.updated
- *   - customer.subscription.deleted
- *   - invoice.payment_failed
- *   - charge.refunded
+ *   URL: https://europe-west1-mesmer-db584.cloudfunctions.net/stripeSubscriptionWebhook
  */
 exports.stripeSubscriptionWebhook = onRequest(
   {
     cors: false,
-    region: process.env.FUNCTIONS_REGION || "europe-west1",
-    secrets: ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
+    region: functionsRegion,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -31,11 +28,11 @@ exports.stripeSubscriptionWebhook = onRequest(
       return;
     }
 
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const webhookSecret = stripeWebhookSecret.value();
+    const stripeKey = stripeSecretKey.value();
 
     if (!webhookSecret || !stripeKey) {
-      console.error("Stripe secrets are not configured");
+      console.error("Stripe env vars are not configured (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)");
       res.status(500).send("Webhook not configured");
       return;
     }
@@ -62,12 +59,10 @@ exports.stripeSubscriptionWebhook = onRequest(
   }
 );
 
-/**
- * Health check for deployment verification.
- */
-exports.subscriptionHealth = onRequest((req, res) => {
+exports.subscriptionHealth = onRequest({ region: functionsRegion }, (req, res) => {
   res.status(200).json({
     ok: true,
     firestore: !!getFirestore(),
+    stripeConfigured: Boolean(stripeSecretKey.value() && stripeWebhookSecret.value()),
   });
 });
