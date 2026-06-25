@@ -1,6 +1,11 @@
 const Stripe = require("stripe");
-const { SUBSCRIPTION_STATUS, SUBSCRIPTION_PLATFORM } = require("./constants");
-const { updateSubscriptionDocument, recordProcessedEvent, toTimestamp } = require("./subscriptionUpdates");
+const {
+  updateSubscriptionDocument,
+  recordProcessedEvent,
+  buildActiveSubscriptionPatch,
+  buildInactiveSubscriptionPatch,
+} = require("./subscriptionUpdates");
+const { MOBILE_SUBSCRIPTION_STATUS } = require("./mobileSchema");
 
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -25,23 +30,11 @@ async function handleCheckoutCompleted(event) {
 
   await updateSubscriptionDocument(
     userId,
-    {
-      status: SUBSCRIPTION_STATUS.ACTIVE,
+    buildActiveSubscriptionPatch({
+      userId,
       plan,
-      platform: SUBSCRIPTION_PLATFORM.WEB,
-      productId: subscription.items?.data?.[0]?.price?.product || null,
-      priceId: subscription.items?.data?.[0]?.price?.id || null,
-      externalId: subscription.id,
-      customerId: subscription.customer,
-      currentPeriodStart: toTimestamp(subscription.current_period_start),
-      currentPeriodEnd: toTimestamp(subscription.current_period_end),
-      cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
-      cancelledAt: null,
-      gracePeriodEndsAt: null,
-      purchaserEmail: session.customer_details?.email || session.customer_email || null,
-      isGift: session.metadata?.source === "gift",
-    },
-    { eventId: event.id, eventType: event.type }
+      purchaseToken: subscription.id,
+    })
   );
 }
 
@@ -56,19 +49,15 @@ async function handleInvoicePaid(event) {
   const userId = getUserIdFromMetadata(subscription.metadata);
   if (!userId) return;
 
+  const plan = subscription.metadata?.plan || null;
+
   await updateSubscriptionDocument(
     userId,
-    {
-      status: SUBSCRIPTION_STATUS.RENEWED,
-      plan: subscription.metadata?.plan || null,
-      platform: SUBSCRIPTION_PLATFORM.WEB,
-      externalId: subscription.id,
-      customerId: subscription.customer,
-      currentPeriodStart: toTimestamp(subscription.current_period_start),
-      currentPeriodEnd: toTimestamp(subscription.current_period_end),
-      cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
-    },
-    { eventId: event.id, eventType: event.type }
+    buildActiveSubscriptionPatch({
+      userId,
+      plan,
+      purchaseToken: subscription.id,
+    })
   );
 }
 
@@ -77,34 +66,27 @@ async function handleSubscriptionUpdated(event) {
   const userId = getUserIdFromMetadata(subscription.metadata);
   if (!userId) return;
 
-  let status = SUBSCRIPTION_STATUS.ACTIVE;
-  let gracePeriodEndsAt = null;
+  const plan = subscription.metadata?.plan || null;
+  const purchaseToken = subscription.id;
 
-  if (subscription.status === "past_due" || subscription.status === "unpaid") {
-    status = SUBSCRIPTION_STATUS.GRACE_PERIOD;
-    gracePeriodEndsAt = toTimestamp(subscription.current_period_end);
-  } else if (subscription.cancel_at_period_end) {
-    status = SUBSCRIPTION_STATUS.CANCELLED;
-  } else if (subscription.status === "active") {
-    status = SUBSCRIPTION_STATUS.ACTIVE;
+  if (subscription.status === "active" || subscription.status === "trialing") {
+    await updateSubscriptionDocument(
+      userId,
+      buildActiveSubscriptionPatch({ userId, plan, purchaseToken })
+    );
+    return;
   }
 
-  await updateSubscriptionDocument(
-    userId,
-    {
-      status,
-      plan: subscription.metadata?.plan || null,
-      platform: SUBSCRIPTION_PLATFORM.WEB,
-      externalId: subscription.id,
-      customerId: subscription.customer,
-      currentPeriodStart: toTimestamp(subscription.current_period_start),
-      currentPeriodEnd: toTimestamp(subscription.current_period_end),
-      cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
-      cancelledAt: subscription.canceled_at ? toTimestamp(subscription.canceled_at) : null,
-      gracePeriodEndsAt,
-    },
-    { eventId: event.id, eventType: event.type }
-  );
+  if (
+    subscription.status === "canceled" ||
+    subscription.status === "unpaid" ||
+    subscription.status === "past_due"
+  ) {
+    await updateSubscriptionDocument(
+      userId,
+      buildInactiveSubscriptionPatch({ userId, plan, purchaseToken })
+    );
+  }
 }
 
 async function handleSubscriptionDeleted(event) {
@@ -114,16 +96,11 @@ async function handleSubscriptionDeleted(event) {
 
   await updateSubscriptionDocument(
     userId,
-    {
-      status: SUBSCRIPTION_STATUS.EXPIRED,
+    buildInactiveSubscriptionPatch({
+      userId,
       plan: subscription.metadata?.plan || null,
-      platform: SUBSCRIPTION_PLATFORM.WEB,
-      externalId: subscription.id,
-      customerId: subscription.customer,
-      currentPeriodEnd: toTimestamp(subscription.ended_at || subscription.current_period_end),
-      cancelAtPeriodEnd: false,
-    },
-    { eventId: event.id, eventType: event.type }
+      purchaseToken: subscription.id,
+    })
   );
 }
 
@@ -136,18 +113,17 @@ async function handleInvoicePaymentFailed(event) {
   const userId = getUserIdFromMetadata(subscription.metadata);
   if (!userId) return;
 
+  if (subscription.status === "active") {
+    return;
+  }
+
   await updateSubscriptionDocument(
     userId,
-    {
-      status: SUBSCRIPTION_STATUS.FAILED_PAYMENT,
+    buildInactiveSubscriptionPatch({
+      userId,
       plan: subscription.metadata?.plan || null,
-      platform: SUBSCRIPTION_PLATFORM.WEB,
-      externalId: subscription.id,
-      customerId: subscription.customer,
-      currentPeriodEnd: toTimestamp(subscription.current_period_end),
-      gracePeriodEndsAt: toTimestamp(subscription.current_period_end),
-    },
-    { eventId: event.id, eventType: event.type }
+      purchaseToken: subscription.id,
+    })
   );
 }
 
@@ -155,29 +131,25 @@ async function handleChargeRefunded(event) {
   const charge = event.data.object;
   const stripe = getStripe();
 
-  let subscriptionId = charge.metadata?.subscriptionId;
-  if (!subscriptionId && charge.invoice) {
+  let stripeSubscriptionId = charge.metadata?.subscriptionId;
+  if (!stripeSubscriptionId && charge.invoice) {
     const invoice = await stripe.invoices.retrieve(charge.invoice);
-    subscriptionId = invoice.subscription;
+    stripeSubscriptionId = invoice.subscription;
   }
 
-  if (!subscriptionId) return;
+  if (!stripeSubscriptionId) return;
 
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
   const userId = getUserIdFromMetadata(subscription.metadata);
   if (!userId) return;
 
   await updateSubscriptionDocument(
     userId,
-    {
-      status: SUBSCRIPTION_STATUS.REFUNDED,
+    buildInactiveSubscriptionPatch({
+      userId,
       plan: subscription.metadata?.plan || null,
-      platform: SUBSCRIPTION_PLATFORM.WEB,
-      externalId: subscription.id,
-      customerId: subscription.customer,
-      refundedAt: toTimestamp(charge.created),
-    },
-    { eventId: event.id, eventType: event.type }
+      purchaseToken: subscription.id,
+    })
   );
 }
 

@@ -1,34 +1,15 @@
-const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const {
   SUBSCRIPTIONS_COLLECTION,
   USERS_COLLECTION,
-  SUBSCRIPTION_STATUS,
-  ENTITLED_STATUSES,
 } = require("./constants");
+const {
+  MOBILE_SUBSCRIPTION_STATUS,
+  planToSubscriptionId,
+  isActiveMobileStatus,
+} = require("./mobileSchema");
 
-function toTimestamp(seconds) {
-  if (!seconds) return null;
-  return Timestamp.fromMillis(Number(seconds) * 1000);
-}
-
-function hasAccess(status, currentPeriodEnd) {
-  if (!ENTITLED_STATUSES.has(status)) return false;
-  if (!currentPeriodEnd) return true;
-  const endMs = currentPeriodEnd.toMillis ? currentPeriodEnd.toMillis() : Number(currentPeriodEnd);
-  return endMs > Date.now();
-}
-
-function planLabel(plan) {
-  if (plan === "annual") return "premium_annual";
-  if (plan === "monthly") return "premium_monthly";
-  return plan || "premium";
-}
-
-/**
- * Upsert subscription document and mirror entitlement to users collection.
- * Document ID is the beneficiary Firebase UID (same as mobile IAP).
- */
-async function updateSubscriptionDocument(userId, patch, eventMeta = {}) {
+async function updateSubscriptionDocument(userId, patch) {
   if (!userId) {
     throw new Error("userId is required to update subscription");
   }
@@ -37,42 +18,53 @@ async function updateSubscriptionDocument(userId, patch, eventMeta = {}) {
   const ref = db.collection(SUBSCRIPTIONS_COLLECTION).doc(userId);
   const now = FieldValue.serverTimestamp();
 
-  const subscriptionData = {
-    userId,
-    ...patch,
-    updatedAt: now,
-    lastEventId: eventMeta.eventId || null,
-    lastEventType: eventMeta.eventType || null,
-  };
-
-  const existing = await ref.get();
-  if (!existing.exists) {
-    subscriptionData.createdAt = now;
-  }
-
-  await ref.set(subscriptionData, { merge: true });
+  await ref.set(
+    {
+      userId,
+      ...patch,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
 
   const userRef = db.collection(USERS_COLLECTION).doc(userId);
-  const entitled = hasAccess(patch.status, patch.currentPeriodEnd);
+  const subscriptionId = patch.subscriptionId;
+  const active = isActiveMobileStatus(patch.status);
 
-  const userUpdate = {
-    subscriptionUpdatedAt: now,
-  };
+  const userUpdate = { subscriptionUpdatedAt: now };
 
-  if (entitled) {
-    userUpdate.subscription = planLabel(patch.plan);
-    userUpdate.plan = planLabel(patch.plan);
-  } else if (
-    patch.status === SUBSCRIPTION_STATUS.EXPIRED ||
-    patch.status === SUBSCRIPTION_STATUS.REFUNDED
-  ) {
+  if (active && subscriptionId) {
+    userUpdate.subscription = subscriptionId;
+    userUpdate.plan = subscriptionId;
+  } else if (patch.status === MOBILE_SUBSCRIPTION_STATUS.INACTIVE) {
     userUpdate.subscription = "free";
     userUpdate.plan = "free";
   }
 
   await userRef.set(userUpdate, { merge: true });
 
-  return { userId, status: patch.status, entitled };
+  return { userId, status: patch.status, subscriptionId, entitled: active };
+}
+
+function buildActiveSubscriptionPatch({ userId, plan, purchaseToken }) {
+  return {
+    userId,
+    status: MOBILE_SUBSCRIPTION_STATUS.ACTIVE,
+    subscriptionId: planToSubscriptionId(plan),
+    purchaseToken,
+    lastRenewed: FieldValue.serverTimestamp(),
+    canceledAt: FieldValue.delete(),
+  };
+}
+
+function buildInactiveSubscriptionPatch({ userId, plan, purchaseToken }) {
+  return {
+    userId,
+    status: MOBILE_SUBSCRIPTION_STATUS.INACTIVE,
+    subscriptionId: planToSubscriptionId(plan),
+    purchaseToken,
+    canceledAt: FieldValue.serverTimestamp(),
+  };
 }
 
 async function recordProcessedEvent(eventId) {
@@ -89,7 +81,7 @@ async function recordProcessedEvent(eventId) {
 module.exports = {
   updateSubscriptionDocument,
   recordProcessedEvent,
-  toTimestamp,
-  hasAccess,
-  planLabel,
+  buildActiveSubscriptionPatch,
+  buildInactiveSubscriptionPatch,
+  planToSubscriptionId,
 };
