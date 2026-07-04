@@ -4,8 +4,8 @@ const {
   recordProcessedEvent,
   buildActiveSubscriptionPatch,
   buildInactiveSubscriptionPatch,
+  toTimestamp,
 } = require("./subscriptionUpdates");
-const { MOBILE_SUBSCRIPTION_STATUS } = require("./mobileSchema");
 
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -17,6 +17,13 @@ function getStripe() {
 
 function getUserIdFromMetadata(metadata = {}) {
   return metadata.userId || metadata.beneficiaryUserId || null;
+}
+
+function periodFromSubscription(subscription) {
+  return {
+    currentPeriodStart: toTimestamp(subscription.current_period_start),
+    currentPeriodEnd: toTimestamp(subscription.current_period_end),
+  };
 }
 
 async function handleCheckoutCompleted(event) {
@@ -34,6 +41,7 @@ async function handleCheckoutCompleted(event) {
       userId,
       plan,
       purchaseToken: subscription.id,
+      ...periodFromSubscription(subscription),
     })
   );
 }
@@ -49,14 +57,13 @@ async function handleInvoicePaid(event) {
   const userId = getUserIdFromMetadata(subscription.metadata);
   if (!userId) return;
 
-  const plan = subscription.metadata?.plan || null;
-
   await updateSubscriptionDocument(
     userId,
     buildActiveSubscriptionPatch({
       userId,
-      plan,
+      plan: subscription.metadata?.plan || null,
       purchaseToken: subscription.id,
+      ...periodFromSubscription(subscription),
     })
   );
 }
@@ -68,11 +75,12 @@ async function handleSubscriptionUpdated(event) {
 
   const plan = subscription.metadata?.plan || null;
   const purchaseToken = subscription.id;
+  const period = periodFromSubscription(subscription);
 
   if (subscription.status === "active" || subscription.status === "trialing") {
     await updateSubscriptionDocument(
       userId,
-      buildActiveSubscriptionPatch({ userId, plan, purchaseToken })
+      buildActiveSubscriptionPatch({ userId, plan, purchaseToken, ...period })
     );
     return;
   }
@@ -84,7 +92,7 @@ async function handleSubscriptionUpdated(event) {
   ) {
     await updateSubscriptionDocument(
       userId,
-      buildInactiveSubscriptionPatch({ userId, plan, purchaseToken })
+      buildInactiveSubscriptionPatch({ userId, plan, purchaseToken, ...period })
     );
   }
 }
@@ -100,6 +108,7 @@ async function handleSubscriptionDeleted(event) {
       userId,
       plan: subscription.metadata?.plan || null,
       purchaseToken: subscription.id,
+      ...periodFromSubscription(subscription),
     })
   );
 }
@@ -123,6 +132,7 @@ async function handleInvoicePaymentFailed(event) {
       userId,
       plan: subscription.metadata?.plan || null,
       purchaseToken: subscription.id,
+      ...periodFromSubscription(subscription),
     })
   );
 }
@@ -149,6 +159,7 @@ async function handleChargeRefunded(event) {
       userId,
       plan: subscription.metadata?.plan || null,
       purchaseToken: subscription.id,
+      ...periodFromSubscription(subscription),
     })
   );
 }

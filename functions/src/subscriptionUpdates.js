@@ -1,4 +1,4 @@
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const {
   SUBSCRIPTIONS_COLLECTION,
   USERS_COLLECTION,
@@ -9,6 +9,15 @@ const {
   isActiveMobileStatus,
 } = require("./mobileSchema");
 
+function toTimestamp(seconds) {
+  if (seconds == null) return null;
+  return Timestamp.fromMillis(Number(seconds) * 1000);
+}
+
+/**
+ * Merge-update `subscriptions/{userId}` with the mobile app schema.
+ * Never replaces the whole document — only patches provided fields.
+ */
 async function updateSubscriptionDocument(userId, patch) {
   if (!userId) {
     throw new Error("userId is required to update subscription");
@@ -18,14 +27,18 @@ async function updateSubscriptionDocument(userId, patch) {
   const ref = db.collection(SUBSCRIPTIONS_COLLECTION).doc(userId);
   const now = FieldValue.serverTimestamp();
 
-  await ref.set(
-    {
-      userId,
-      ...patch,
-      updatedAt: now,
-    },
-    { merge: true }
-  );
+  const existing = await ref.get();
+  const subscriptionData = {
+    userId,
+    ...patch,
+    updatedAt: now,
+  };
+
+  if (!existing.exists) {
+    subscriptionData.createdAt = now;
+  }
+
+  await ref.set(subscriptionData, { merge: true });
 
   const userRef = db.collection(USERS_COLLECTION).doc(userId);
   const subscriptionId = patch.subscriptionId;
@@ -46,23 +59,47 @@ async function updateSubscriptionDocument(userId, patch) {
   return { userId, status: patch.status, subscriptionId, entitled: active };
 }
 
-function buildActiveSubscriptionPatch({ userId, plan, purchaseToken }) {
+function buildActiveSubscriptionPatch({
+  userId,
+  plan,
+  purchaseToken,
+  currentPeriodStart,
+  currentPeriodEnd,
+}) {
+  const subscriptionId = planToSubscriptionId(plan);
+
   return {
     userId,
     status: MOBILE_SUBSCRIPTION_STATUS.ACTIVE,
-    subscriptionId: planToSubscriptionId(plan),
+    plan: subscriptionId,
+    subscriptionId,
     purchaseToken,
+    currentPeriodStart: currentPeriodStart ?? null,
+    currentPeriodEnd: currentPeriodEnd ?? null,
+    gracePeriodEndsAt: null,
     lastRenewed: FieldValue.serverTimestamp(),
-    canceledAt: FieldValue.delete(),
+    canceledAt: null,
   };
 }
 
-function buildInactiveSubscriptionPatch({ userId, plan, purchaseToken }) {
+function buildInactiveSubscriptionPatch({
+  userId,
+  plan,
+  purchaseToken,
+  currentPeriodStart,
+  currentPeriodEnd,
+}) {
+  const subscriptionId = planToSubscriptionId(plan);
+
   return {
     userId,
     status: MOBILE_SUBSCRIPTION_STATUS.INACTIVE,
-    subscriptionId: planToSubscriptionId(plan),
+    plan: subscriptionId,
+    subscriptionId,
     purchaseToken,
+    currentPeriodStart: currentPeriodStart ?? null,
+    currentPeriodEnd: currentPeriodEnd ?? null,
+    gracePeriodEndsAt: null,
     canceledAt: FieldValue.serverTimestamp(),
   };
 }
@@ -84,4 +121,5 @@ module.exports = {
   buildActiveSubscriptionPatch,
   buildInactiveSubscriptionPatch,
   planToSubscriptionId,
+  toTimestamp,
 };
