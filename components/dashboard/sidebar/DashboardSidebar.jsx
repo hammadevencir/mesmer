@@ -16,6 +16,7 @@ import {
   DashboardIcon,
   MoodExercisesIcon,
   BreathingExercisesIcon,
+  TracksIcon,
   RevenueIcon,
   DailyMesmerIcon,
   MesmerTipsIcon,
@@ -38,6 +39,11 @@ const menuItems = [
     title: "Breathing Exercises",
     icon: BreathingExercisesIcon,
     href: "/admin/breathing-exercises",
+  },
+  {
+    title: "Tracks",
+    icon: TracksIcon,
+    href: "/admin/tracks",
   },
   {
     title: "Paywall Offer",

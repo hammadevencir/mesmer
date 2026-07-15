@@ -321,6 +321,40 @@ export const RevenueIcon = (props) => (
   </svg>
 );
 
+/** Stacked layers — tracks admin nav */
+export const TracksIcon = (props) => (
+  <svg
+    {...props}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M12 2.5L21 7L12 11.5L3 7L12 2.5Z"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M3 12L12 16.5L21 12"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M3 17L12 21.5L21 17"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 /** Wind / breath cues for breathing exercises admin nav */
 export const BreathingExercisesIcon = (props) => (
   <svg
