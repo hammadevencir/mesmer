@@ -69,7 +69,7 @@ export async function GET() {
       const data = doc.data();
       if (data?.isDraft === true) return; // only live exercises are user-facing
       const cat = categoryNameOf(data);
-      if (!isAllowedCategory(cat)) return; // only calm, stress, overthinking
+      if (!isAllowedCategory(cat)) return; // only Calm and Stress & Overthinking
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push({ id: doc.id, title: data?.title ?? "—" });
     });

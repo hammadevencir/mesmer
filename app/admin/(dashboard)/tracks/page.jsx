@@ -59,7 +59,7 @@ const TracksPage = () => {
     <div className="p-4 md:p-6 flex flex-col gap-6 min-h-screen">
       <PageHeader
         title="Tracks"
-        subtitle="Each track shows 2 exercises — pick them by hand for Calm, Stress and Overthinking"
+        subtitle="Each track shows 2 exercises — pick them by hand for Calm and Stress & Overthinking"
       />
 
       {/* Loading State */}
