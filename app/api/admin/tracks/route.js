@@ -10,7 +10,12 @@ const TRACKS_COLLECTION = "tracks";
 /** Number of exercises every track shows to the end user. */
 const EXERCISES_PER_TRACK = 2;
 
-const VALID_MODES = ["manual", "random"];
+/** Only these categories are configurable as tracks. */
+const ALLOWED_CATEGORIES = ["calm", "stress", "overthinking"];
+
+function isAllowedCategory(name) {
+  return ALLOWED_CATEGORIES.includes(String(name).trim().toLowerCase());
+}
 
 /** Turn a category name into a stable, Firestore-safe document id. */
 function slugifyCategory(name) {
@@ -64,13 +69,13 @@ export async function GET() {
       const data = doc.data();
       if (data?.isDraft === true) return; // only live exercises are user-facing
       const cat = categoryNameOf(data);
+      if (!isAllowedCategory(cat)) return; // only calm, stress, overthinking
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push({ id: doc.id, title: data?.title ?? "—" });
     });
 
     const tracks = Object.entries(grouped).map(([categoryName, exercises]) => {
       const cfg = configByCategory[categoryName];
-      const mode = VALID_MODES.includes(cfg?.mode) ? cfg.mode : "random";
       // Drop any saved picks that no longer point at a live exercise.
       const validIds = new Set(exercises.map((e) => e.id));
       const exercise1Id = validIds.has(cfg?.exercise1Id)
@@ -81,7 +86,6 @@ export async function GET() {
         : "";
       return {
         categoryName,
-        mode,
         exercise1Id,
         exercise2Id,
         exercises,
@@ -106,8 +110,8 @@ export async function GET() {
 
 /**
  * PUT /api/admin/tracks
- * Body: { categoryName, mode: "manual" | "random", exercise1Id?, exercise2Id? }
- * In manual mode both picks must be distinct live exercises in that category.
+ * Body: { categoryName, exercise1Id, exercise2Id }
+ * Both picks must be distinct live exercises in that category.
  */
 export async function PUT(request) {
   try {
@@ -118,7 +122,6 @@ export async function PUT(request) {
 
     const body = await request.json();
     const categoryName = String(body?.categoryName || "").trim();
-    const mode = body?.mode;
 
     if (!categoryName) {
       return NextResponse.json(
@@ -126,67 +129,61 @@ export async function PUT(request) {
         { status: 400 },
       );
     }
-    if (!VALID_MODES.includes(mode)) {
+    if (!isAllowedCategory(categoryName)) {
       return NextResponse.json(
-        { error: 'mode must be "manual" or "random"' },
+        { error: "This category cannot be configured as a track." },
         { status: 400 },
       );
     }
 
     const db = getAdminFirestore();
 
-    let exercise1Id = "";
-    let exercise2Id = "";
+    const exercise1Id = String(body?.exercise1Id || "").trim();
+    const exercise2Id = String(body?.exercise2Id || "").trim();
 
-    if (mode === "manual") {
-      exercise1Id = String(body?.exercise1Id || "").trim();
-      exercise2Id = String(body?.exercise2Id || "").trim();
+    if (!exercise1Id || !exercise2Id) {
+      return NextResponse.json(
+        { error: `Pick ${EXERCISES_PER_TRACK} exercises for this track.` },
+        { status: 400 },
+      );
+    }
+    if (exercise1Id === exercise2Id) {
+      return NextResponse.json(
+        { error: "The two exercises must be different." },
+        { status: 400 },
+      );
+    }
 
-      if (!exercise1Id || !exercise2Id) {
+    // Both picks must exist, be live, and belong to this category.
+    const snaps = await Promise.all([
+      db.collection(EXERCISES_COLLECTION).doc(exercise1Id).get(),
+      db.collection(EXERCISES_COLLECTION).doc(exercise2Id).get(),
+    ]);
+    for (const snap of snaps) {
+      const data = snap.exists ? snap.data() : null;
+      if (!data) {
         return NextResponse.json(
-          { error: `Pick ${EXERCISES_PER_TRACK} exercises for this track.` },
+          { error: "Selected exercise no longer exists." },
           { status: 400 },
         );
       }
-      if (exercise1Id === exercise2Id) {
+      if (data.isDraft === true) {
         return NextResponse.json(
-          { error: "The two exercises must be different." },
+          { error: "Selected exercise is a draft and cannot be used." },
           { status: 400 },
         );
       }
-
-      // Both picks must exist, be live, and belong to this category.
-      const snaps = await Promise.all([
-        db.collection(EXERCISES_COLLECTION).doc(exercise1Id).get(),
-        db.collection(EXERCISES_COLLECTION).doc(exercise2Id).get(),
-      ]);
-      for (const snap of snaps) {
-        const data = snap.exists ? snap.data() : null;
-        if (!data) {
-          return NextResponse.json(
-            { error: "Selected exercise no longer exists." },
-            { status: 400 },
-          );
-        }
-        if (data.isDraft === true) {
-          return NextResponse.json(
-            { error: "Selected exercise is a draft and cannot be used." },
-            { status: 400 },
-          );
-        }
-        if (categoryNameOf(data) !== categoryName) {
-          return NextResponse.json(
-            { error: "Selected exercise is not in this category." },
-            { status: 400 },
-          );
-        }
+      if (categoryNameOf(data) !== categoryName) {
+        return NextResponse.json(
+          { error: "Selected exercise is not in this category." },
+          { status: 400 },
+        );
       }
     }
 
     const docId = slugifyCategory(categoryName);
     const trackData = {
       categoryName,
-      mode,
       exercise1Id,
       exercise2Id,
       updatedAt: new Date().toISOString(),

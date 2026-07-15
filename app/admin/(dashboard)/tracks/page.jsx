@@ -46,7 +46,6 @@ const TracksPage = () => {
         t.categoryName === payload.categoryName
           ? {
               ...t,
-              mode: data.mode,
               exercise1Id: data.exercise1Id,
               exercise2Id: data.exercise2Id,
             }
@@ -60,7 +59,7 @@ const TracksPage = () => {
     <div className="p-4 md:p-6 flex flex-col gap-6 min-h-screen">
       <PageHeader
         title="Tracks"
-        subtitle="Each track shows 2 exercises — pick them by hand or let the app choose 2 at random daily"
+        subtitle="Each track shows 2 exercises — pick them by hand for Calm, Stress and Overthinking"
       />
 
       {/* Loading State */}
