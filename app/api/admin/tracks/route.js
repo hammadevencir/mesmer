@@ -11,7 +11,7 @@ const TRACKS_COLLECTION = "tracks";
 const EXERCISES_PER_TRACK = 2;
 
 /** Only these categories are configurable as tracks. */
-const ALLOWED_CATEGORIES = ["calm", "stress", "overthinking"];
+const ALLOWED_CATEGORIES = ["calm", "stress & overthinking"];
 
 function isAllowedCategory(name) {
   return ALLOWED_CATEGORIES.includes(String(name).trim().toLowerCase());
