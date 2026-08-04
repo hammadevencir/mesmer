@@ -15,7 +15,7 @@ const AdminAuthLayout = ({ children }) => {
       {/* --- Static Logo Section --- */}
       <div className="my-3">
         <Image
-          src="/mesmer.png"
+          src="/mesmer-new.png"
           alt="MESMER"
           width={280}
           height={100}

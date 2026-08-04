@@ -74,7 +74,7 @@ const SidebarNav = ({ currentPath, onNavigate }) => {
       <div className="flex flex-col w-full">
         <div className="mb-8 flex items-center justify-center">
           <Image
-            src="/mesmer.png"
+            src="/mesmer-new.png"
             alt="MESMER"
             width={300}
             height={60}

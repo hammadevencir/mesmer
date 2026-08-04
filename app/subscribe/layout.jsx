@@ -17,7 +17,7 @@ export default function SubscribeLayout({ children }) {
       <div className="w-full max-w-lg px-5 py-8">
         <div className="mb-6 flex justify-center">
           <Image
-            src="/mesmer.png"
+            src="/mesmer-new.png"
             alt="Mesmer"
             width={200}
             height={72}
