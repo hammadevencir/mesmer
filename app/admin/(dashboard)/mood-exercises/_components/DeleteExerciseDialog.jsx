@@ -12,20 +12,24 @@ import { CloseCircleIcon } from "./Icons";
 const DeleteExerciseDialog = ({ children, onConfirm }) => {
   const [deleting, setDeleting] = useState(false);
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
 
   const handleDelete = async () => {
     if (!onConfirm) return;
     setDeleting(true);
+    setError("");
     try {
       await onConfirm();
       setOpen(false);
+    } catch (e) {
+      setError(e.message || "Failed to delete exercise");
     } finally {
       setDeleting(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) setError(""); }}>
       <DialogTrigger asChild onClick={(e) => e.stopPropagation()}>
         {children}
       </DialogTrigger>
@@ -49,6 +53,7 @@ const DeleteExerciseDialog = ({ children, onConfirm }) => {
               Are you sure you want to delete this exercise? This action cannot
               be undone.
             </p>
+            {error && <p className="text-[13px] text-red-600 mt-1">{error}</p>}
           </div>
           <DialogClose className="outline-none">
             <CloseCircleIcon className="w-5 h-5 sm:w-6 sm:h-6 cursor-pointer" />

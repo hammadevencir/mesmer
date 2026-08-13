@@ -12,20 +12,24 @@ import { CloseCircleIcon } from "./Icons";
 const MakeLiveDialog = ({ children, onConfirm }) => {
   const [open, setOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState("");
 
   const handleConfirm = async () => {
     if (!onConfirm) return;
     setProcessing(true);
+    setError("");
     try {
       await onConfirm();
       setOpen(false);
+    } catch (e) {
+      setError(e.message || "Failed to update exercise");
     } finally {
       setProcessing(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) setError(""); }}>
       <DialogTrigger asChild onClick={(e) => e.stopPropagation()}>
         {children}
       </DialogTrigger>
@@ -46,6 +50,7 @@ const MakeLiveDialog = ({ children, onConfirm }) => {
             <p className="text-[16px] text-[#6B7280]">
               Are you sure you want to make the exercise live?
             </p>
+            {error && <p className="text-[13px] text-red-600 mt-1">{error}</p>}
           </div>
           <DialogClose className="outline-none">
             <CloseCircleIcon className="w-6 h-6 cursor-pointer" />

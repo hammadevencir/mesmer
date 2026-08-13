@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// This repo previously had no storage.rules at all, so whatever rules exist
+// today live only in the Firebase Console and are invisible here. If those
+// console rules don't grant writes to a signed-in admin, every upload from
+// the admin panel (CreateExerciseDialog / EditExerciseDialog) fails
+// regardless of file format — which matches "video upload fails as well"
+// and "converted file also fails" in the reported issue.
+//
+// Deploy with: firebase deploy --only storage
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Exercise media (images/audio/video) uploaded from the admin panel.
+    // Publicly readable so the mobile app can play it back without a
+    // Firebase Auth session; only signed-in users (i.e. admins, who are the
+    // only ones with admin-panel credentials) can write.
+    match /exercises/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Default: no access unless a more specific rule above matches.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

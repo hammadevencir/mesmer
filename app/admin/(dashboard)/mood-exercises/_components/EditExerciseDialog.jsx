@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { BackArrow, CloudUploadIcon, ReadIcon, CheckmarkIcon, TrashIconWhite } from "./Icons";
+import { BackArrow, CheckmarkIcon, TrashIconWhite } from "./Icons";
 import { cn } from "@/lib/utils";
 import { getClientStorage } from "@/lib/firebase/client";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -23,25 +23,52 @@ const Label = ({ children, required }) => (
   </label>
 );
 
-const CategoryChip = ({ name, isSelected, onClick }) => (
+const CategoryChip = ({ name, isSelected, onClick, color }) => (
   <button
     type="button"
     onClick={onClick}
     className={cn(
-      "px-4 py-2 rounded-[12px] text-[14px] font-medium transition-all flex items-center gap-2",
-      isSelected
-        ? "bg-[#F3E8FF] text-[#8F00FF] border border-[#8F00FF]"
-        : "bg-[#F3E8FF] text-[#6B7280] border border-transparent hover:border-[#8F00FF]/30",
+      "px-4 py-2 rounded-[12px] text-[14px] font-medium transition-all flex items-center gap-2 border",
+      isSelected ? "border-current" : "border-transparent hover:border-current/30",
     )}
+    style={{
+      backgroundColor: color.bg,
+      color: color.text,
+    }}
   >
     {name}
     {isSelected && (
-      <div className="w-4 h-4 rounded-full bg-[#8F00FF] flex items-center justify-center">
+      <div
+        className="w-4 h-4 rounded-full flex items-center justify-center"
+        style={{ backgroundColor: color.text }}
+      >
         <CheckmarkIcon className="w-2.5 h-2.5" />
       </div>
     )}
   </button>
 );
+
+const CategoryGroup = ({ title, categories, selected, onToggle }) => {
+  if (categories.length === 0) return null;
+  return (
+    <div>
+      <p className="text-[12px] font-semibold text-[#9CA3AF] uppercase tracking-wide mb-2">
+        {title}
+      </p>
+      <div className="flex flex-wrap gap-3">
+        {categories.map((cat) => (
+          <CategoryChip
+            key={cat.id}
+            name={cat.name}
+            color={cat.color}
+            isSelected={selected.includes(cat.name)}
+            onClick={() => onToggle(cat.name)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const StepCard = ({ index, step, onChange, onDelete }) => {
   const stepNumber = String(index + 1).padStart(2, "0");
@@ -84,11 +111,12 @@ const StepCard = ({ index, step, onChange, onDelete }) => {
   );
 };
 
-/** Reusable file-upload field for media (listen / watch) with inline preview */
+/** Reusable file-upload field for media (image / listen / watch) with inline preview */
 const FileUploadField = ({ label, accept, value, onChange, uploading, progress, onFileSelect, placeholder, mediaType }) => {
   const inputRef = useRef(null);
   const isAudio = mediaType === "audio";
   const isVideo = mediaType === "video";
+  const isImage = mediaType === "image";
   const hasPreview = value && value.trim().length > 0;
 
   return (
@@ -179,6 +207,14 @@ const FileUploadField = ({ label, accept, value, onChange, uploading, progress, 
                 preload="metadata"
               />
             )}
+            {isImage && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={value}
+                alt="Exercise cover"
+                className="w-full rounded-[8px] max-h-[200px] object-cover bg-white"
+              />
+            )}
           </div>
         )}
       </div>
@@ -193,22 +229,32 @@ const EditExerciseDialog = ({
   onboardingCount = 0,
   maxOnboardingExercises = 3,
 }) => {
-  const [formData, setFormData] = useState({
-    title: exercise?.title || "",
-    description: exercise?.description || "",
-    category: exercise?.categoryName || exercise?.category || "",
-    order: exercise?.order || 0,
-    duration: exercise?.duration || 0,
-    theScience: exercise?.theScience || "",
-    mesmerFact: exercise?.mesmerFact || "",
-    whatItIs: exercise?.whatItIs || "",
-    whatYouDo: exercise?.whatYouDo || "",
-    whenToUse: exercise?.whenToUse || "",
-    read: exercise?.read || "",
-    listen: exercise?.listen || "",
-    watch: exercise?.watch || "",
-    isOnBoarding: exercise?.isOnBoarding === true,
+  const buildFormData = (ex) => ({
+    title: ex?.title || "",
+    description: ex?.description || "",
+    image: ex?.image || "",
+    order: ex?.order || 0,
+    duration: ex?.duration || 0,
+    whatItIs: ex?.whatItIs || "",
+    whatYouDo: ex?.whatYouDo || "",
+    whenToUse: ex?.whenToUse || "",
+    result: ex?.result || "",
+    theScience: ex?.theScience || "",
+    mesmerFact: ex?.mesmerFact || "",
+    listen: ex?.listen || "",
+    watch: ex?.watch || "",
+    isOnBoarding: ex?.isOnBoarding === true,
   });
+
+  const buildCategoryNames = (ex) =>
+    Array.isArray(ex?.categoryNames) && ex.categoryNames.length
+      ? ex.categoryNames
+      : ex?.categoryName
+        ? [ex.categoryName]
+        : [];
+
+  const [formData, setFormData] = useState(buildFormData(exercise));
+  const [categoryNames, setCategoryNames] = useState(buildCategoryNames(exercise));
 
   const [steps, setSteps] = useState(
     exercise?.steps?.length > 0
@@ -218,8 +264,11 @@ const EditExerciseDialog = ({
 
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
   const [fetchedCategories, setFetchedCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageProgress, setImageProgress] = useState(0);
   const [listenUploading, setListenUploading] = useState(false);
   const [listenProgress, setListenProgress] = useState(0);
   const [watchUploading, setWatchUploading] = useState(false);
@@ -247,32 +296,25 @@ const EditExerciseDialog = ({
   // Reset form + steps when dialog opens with fresh exercise data
   useEffect(() => {
     if (open && exercise) {
-      setFormData({
-        title: exercise.title || "",
-        description: exercise.description || "",
-        category: exercise.categoryName || exercise.category || "",
-        order: exercise.order || 0,
-        duration: exercise.duration || 0,
-        theScience: exercise.theScience || "",
-        mesmerFact: exercise.mesmerFact || "",
-        whatItIs: exercise.whatItIs || "",
-        whatYouDo: exercise.whatYouDo || "",
-        whenToUse: exercise.whenToUse || "",
-        read: exercise.read || "",
-        listen: exercise.listen || "",
-        watch: exercise.watch || "",
-        isOnBoarding: exercise.isOnBoarding === true,
-      });
+      setFormData(buildFormData(exercise));
+      setCategoryNames(buildCategoryNames(exercise));
       setSteps(
         exercise.steps?.length > 0
           ? exercise.steps.map((s) => ({ title: s.title || "", description: s.description || "" }))
           : [{ title: "", description: "" }],
       );
+      setError("");
     }
   }, [open, exercise]);
 
   const handleChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const toggleCategory = (name) => {
+    setCategoryNames((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    );
   };
 
   const handleStepChange = (index, field, value) => {
@@ -326,7 +368,9 @@ const EditExerciseDialog = ({
       handleChange(field, url);
     } catch (err) {
       console.error(`Upload failed (${folder}):`, err);
-      alert("Upload failed. Please try again.");
+      alert(
+        `Upload failed${err.code ? ` (${err.code})` : ""}: ${err.message || "please try again."}`,
+      );
     } finally {
       setUploading(false);
     }
@@ -334,17 +378,21 @@ const EditExerciseDialog = ({
 
   const handleSave = async (isDraft = exercise?.isDraft || false) => {
     if (!onUpdate) return;
-    
-    const selectedCat = fetchedCategories.find(c => c.name === formData.category);
-    
+
+    const selectedCats = fetchedCategories.filter((c) =>
+      categoryNames.includes(c.name),
+    );
+
     setSaving(true);
+    setError("");
     try {
-      const { category, ...restFormData } = formData;
       await onUpdate({
         id: exercise.id,
-        ...restFormData,
-        categoryName: formData.category,
-        categoryId: selectedCat?.id || exercise?.categoryId || "",
+        ...formData,
+        categoryNames,
+        categoryIds: selectedCats.length
+          ? selectedCats.map((c) => c.id)
+          : exercise?.categoryIds || [],
         order: Number(formData.order) || 0,
         duration: Number(formData.duration) || 0,
         isDraft,
@@ -352,6 +400,8 @@ const EditExerciseDialog = ({
         steps: steps.filter((s) => s.title || s.description),
       });
       setOpen(false);
+    } catch (e) {
+      setError(e.message || "Failed to save exercise");
     } finally {
       setSaving(false);
     }
@@ -363,8 +413,17 @@ const EditExerciseDialog = ({
     formData.isOnBoarding !== true &&
     otherOnboardingCount >= maxOnboardingExercises;
 
+  const moodCategories = fetchedCategories.filter((c) => c.type === "mood");
+  const improveCategories = fetchedCategories.filter((c) => c.type !== "mood");
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (v) setError("");
+      }}
+    >
       <DialogTrigger asChild onClick={(e) => e.stopPropagation()}>
         {children}
       </DialogTrigger>
@@ -388,6 +447,12 @@ const EditExerciseDialog = ({
           <div className="flex flex-col gap-2">
             <h3 className="text-[18px] font-bold text-[#111827]">Basics</h3>
 
+            {error && (
+              <div className="rounded-[10px] bg-red-50 border border-red-200 text-red-700 text-[13px] px-3 py-2">
+                {error}
+              </div>
+            )}
+
             <div>
               <Label required>Title</Label>
               <input
@@ -407,6 +472,53 @@ const EditExerciseDialog = ({
                 placeholder="Brief description of the exercise"
                 rows={4}
                 className="w-full rounded-[12px] border border-[#E5E7EB] p-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors resize-none placeholder:text-[#9CA3AF]"
+              />
+            </div>
+
+            <FileUploadField
+              label="Image"
+              accept="image/*"
+              value={formData.image}
+              onChange={(val) => handleChange("image", val)}
+              uploading={imageUploading}
+              progress={imageProgress}
+              onFileSelect={(file) =>
+                uploadFile(file, "images", setImageUploading, setImageProgress, "image")
+              }
+              placeholder="Paste URL or upload from computer"
+              mediaType="image"
+            />
+
+            <div>
+              <Label required>WHY</Label>
+              <input
+                type="text"
+                value={formData.whatItIs}
+                onChange={(e) => handleChange("whatItIs", e.target.value)}
+                placeholder="e.g: When you scroll and see everyone winning, you're comparing your life to their highlight reel"
+                className="w-full h-[52px] rounded-[12px] border border-[#E5E7EB] px-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors placeholder:text-[#9CA3AF]"
+              />
+            </div>
+
+            <div>
+              <Label required>HOW</Label>
+              <input
+                type="text"
+                value={formData.whatYouDo}
+                onChange={(e) => handleChange("whatYouDo", e.target.value)}
+                placeholder="e.g: Break free from comparison and focus on running your own race in 3 quick steps"
+                className="w-full h-[52px] rounded-[12px] border border-[#E5E7EB] px-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors placeholder:text-[#9CA3AF]"
+              />
+            </div>
+
+            <div>
+              <Label required>WHEN</Label>
+              <input
+                type="text"
+                value={formData.whenToUse}
+                onChange={(e) => handleChange("whenToUse", e.target.value)}
+                placeholder="e.g: When scrolling makes you spiral, when their posts make you feel worthless"
+                className="w-full h-[52px] rounded-[12px] border border-[#E5E7EB] px-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors placeholder:text-[#9CA3AF]"
               />
             </div>
 
@@ -435,28 +547,37 @@ const EditExerciseDialog = ({
             </div>
 
             <div>
-              <Label required>Category</Label>
-              <div className="flex flex-wrap gap-3 mt-2">
-                {loadingCategories ? (
-                  [1, 2, 3, 4, 5, 6].map((i) => (
+              <Label required>Categories</Label>
+              <p className="text-[12px] text-[#9CA3AF] mb-2 -mt-1">
+                Pick as many as apply — an exercise can sit in more than one.
+              </p>
+              {loadingCategories ? (
+                <div className="flex flex-wrap gap-3 mt-2">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
                     <div
                       key={i}
                       className="h-9 w-24 bg-gray-100 animate-pulse rounded-[12px]"
                     />
-                  ))
-                ) : fetchedCategories.length === 0 ? (
-                  <p className="text-sm text-gray-400 italic">No categories found</p>
-                ) : (
-                  fetchedCategories.map((cat) => (
-                    <CategoryChip
-                      key={cat.id}
-                      name={cat.name}
-                      isSelected={formData.category === cat.name}
-                      onClick={() => handleChange("category", cat.name)}
-                    />
-                  ))
-                )}
-              </div>
+                  ))}
+                </div>
+              ) : fetchedCategories.length === 0 ? (
+                <p className="text-sm text-gray-400 italic">No categories found</p>
+              ) : (
+                <div className="flex flex-col gap-3 mt-2">
+                  <CategoryGroup
+                    title="Mood"
+                    categories={moodCategories}
+                    selected={categoryNames}
+                    onToggle={toggleCategory}
+                  />
+                  <CategoryGroup
+                    title="Improve On"
+                    categories={improveCategories}
+                    selected={categoryNames}
+                    onToggle={toggleCategory}
+                  />
+                </div>
+              )}
             </div>
 
             <div>
@@ -540,53 +661,9 @@ const EditExerciseDialog = ({
               />
             </div>
 
-            <div>
-              <Label>What It Is</Label>
-              <input
-                type="text"
-                value={formData.whatItIs}
-                onChange={(e) => handleChange("whatItIs", e.target.value)}
-                placeholder="e.g: Athletes use this to access peak performance on demand"
-                className="w-full h-[52px] rounded-[12px] border border-[#E5E7EB] px-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors placeholder:text-[#9CA3AF]"
-              />
-            </div>
-
-            <div>
-              <Label>What You Do</Label>
-              <input
-                type="text"
-                value={formData.whatYouDo}
-                onChange={(e) => handleChange("whatYouDo", e.target.value)}
-                placeholder="e.g: Create an imaginary circle, fill it with confidence, step in when you need it"
-                className="w-full h-[52px] rounded-[12px] border border-[#E5E7EB] px-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors placeholder:text-[#9CA3AF]"
-              />
-            </div>
-
-            <div>
-              <Label>When To Use</Label>
-              <input
-                type="text"
-                value={formData.whenToUse}
-                onChange={(e) => handleChange("whenToUse", e.target.value)}
-                placeholder="e.g: Before presentations, social situations, difficult conversations"
-                className="w-full h-[52px] rounded-[12px] border border-[#E5E7EB] px-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors placeholder:text-[#9CA3AF]"
-              />
-            </div>
-
-            <div>
-              <Label>Read</Label>
-              <textarea
-                value={formData.read}
-                onChange={(e) => handleChange("read", e.target.value)}
-                placeholder="Enter reading content"
-                rows={3}
-                className="w-full rounded-[12px] border border-[#E5E7EB] p-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors resize-none placeholder:text-[#9CA3AF]"
-              />
-            </div>
-
             <FileUploadField
-              label="Listen URL (.mp3)"
-              accept="audio/*,.mp3"
+              label="Listen URL"
+              accept="audio/*,.mp3,.m4a,.wav,.aac"
               value={formData.listen}
               onChange={(val) => handleChange("listen", val)}
               uploading={listenUploading}
@@ -599,8 +676,8 @@ const EditExerciseDialog = ({
             />
 
             <FileUploadField
-              label="Watch URL (.mp4)"
-              accept="video/*,.mp4"
+              label="Watch URL"
+              accept="video/*,.mp4,.mov,.m4v"
               value={formData.watch}
               onChange={(val) => handleChange("watch", val)}
               uploading={watchUploading}
@@ -635,6 +712,19 @@ const EditExerciseDialog = ({
             >
               Add Step
             </button>
+
+            {/* Result Section */}
+            <h3 className="text-[18px] font-bold text-[#111827] mt-4">Result</h3>
+            <div>
+              <Label>Message to the user after they finish the exercise</Label>
+              <textarea
+                value={formData.result}
+                onChange={(e) => handleChange("result", e.target.value)}
+                placeholder="Write here"
+                rows={4}
+                className="w-full rounded-[12px] border border-[#E5E7EB] p-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors resize-none placeholder:text-[#9CA3AF]"
+              />
+            </div>
           </div>
         </div>
 
@@ -676,4 +766,3 @@ const EditExerciseDialog = ({
 };
 
 export default EditExerciseDialog;
-

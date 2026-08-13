@@ -17,7 +17,10 @@ const ExerciseCard = ({
   const stepsCount = Array.isArray(exercise.steps) ? exercise.steps.length : 0;
   const durationDisplay = `${exercise.duration || 0} mins`;
   const stepsDisplay = `${String(stepsCount).padStart(2, "0")} steps`;
-  const categoryDisplay = exercise.categoryName || exercise.category || "—";
+  const categoryNames =
+    Array.isArray(exercise.categoryNames) && exercise.categoryNames.length
+      ? exercise.categoryNames
+      : [exercise.categoryName || exercise.category].filter(Boolean);
   const descriptionDisplay = exercise.description?.trim() || "—";
 
   const otherOnboardingCount =
@@ -32,9 +35,20 @@ const ExerciseCard = ({
         {/* Card Header */}
         <div className="flex justify-between items-center mb-0.5 gap-2 min-w-0 shrink-0">
           <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
-            <span className="bg-[#F3E8FF] text-[#8F00FF] text-[13px] font-medium py-2.5 px-3 rounded-full truncate min-w-0 max-w-[60%]">
-              {categoryDisplay}
-            </span>
+            {categoryNames.length > 0 ? (
+              categoryNames.map((name) => (
+                <span
+                  key={name}
+                  className="bg-[#F3E8FF] text-[#8F00FF] text-[13px] font-medium py-2.5 px-3 rounded-full truncate min-w-0 max-w-[60%]"
+                >
+                  {name}
+                </span>
+              ))
+            ) : (
+              <span className="bg-[#F3E8FF] text-[#8F00FF] text-[13px] font-medium py-2.5 px-3 rounded-full truncate min-w-0 max-w-[60%]">
+                —
+              </span>
+            )}
             {exercise.isOnBoarding && (
               <span className="bg-emerald-50 text-emerald-800 text-[12px] font-semibold py-2 px-2.5 rounded-full shrink-0 border border-emerald-200">
                 Onboarding
@@ -89,7 +103,9 @@ const ExerciseCard = ({
               checked={exercise.isOnBoarding === true}
               disabled={onboardingToggleDisabled}
               onCheckedChange={(checked) =>
-                onUpdate({ ...exercise, isOnBoarding: checked })
+                onUpdate({ ...exercise, isOnBoarding: checked }).catch((e) =>
+                  alert(e.message || "Failed to update exercise"),
+                )
               }
               aria-label="Toggle onboarding exercise"
             />
@@ -98,6 +114,14 @@ const ExerciseCard = ({
 
         {/* Inner Content Box */}
         <div className="bg-[#F3E8FF] rounded-[12px] p-4 flex-1 flex flex-col justify-center min-h-0 overflow-hidden">
+          {exercise.image && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={exercise.image}
+              alt=""
+              className="w-full h-24 object-cover rounded-[8px] mb-2 shrink-0"
+            />
+          )}
           <p
             className="text-[14px] font-normal text-[#6C6C6C] mb-2 flex items-start gap-2 tracking-tight line-clamp-2 wrap-break-word overflow-hidden min-w-0"
             style={{

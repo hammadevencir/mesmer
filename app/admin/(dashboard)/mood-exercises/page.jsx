@@ -54,45 +54,44 @@ const MoodExercisesPage = () => {
     fetchExercises();
   }, [fetchExercises]);
 
+  // These intentionally do NOT catch — a failed create/update/delete must
+  // reject so the calling dialog knows to keep itself open and show the
+  // error, instead of silently closing as if it had saved.
   const handleDelete = async (exerciseId) => {
-    try {
-      const res = await fetch(`/api/admin/exercises?id=${exerciseId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Failed to delete");
-      // Refresh list
-      fetchExercises();
-    } catch (e) {
-      console.error("Error deleting exercise:", e);
+    const res = await fetch(`/api/admin/exercises?id=${exerciseId}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to delete exercise");
     }
+    fetchExercises();
   };
 
   const handleUpdate = async (updatedExercise) => {
-    try {
-      const res = await fetch("/api/admin/exercises", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedExercise),
-      });
-      if (!res.ok) throw new Error("Failed to update");
-      fetchExercises();
-    } catch (e) {
-      console.error("Error updating exercise:", e);
+    const res = await fetch("/api/admin/exercises", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedExercise),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to update exercise");
     }
+    fetchExercises();
   };
 
   const handleCreate = async (newExercise) => {
-    try {
-      const res = await fetch("/api/admin/exercises", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newExercise),
-      });
-      if (!res.ok) throw new Error("Failed to create");
-      fetchExercises();
-    } catch (e) {
-      console.error("Error creating exercise:", e);
+    const res = await fetch("/api/admin/exercises", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newExercise),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to create exercise");
     }
+    fetchExercises();
   };
 
   const displayedExercises = exercises.filter((ex) =>

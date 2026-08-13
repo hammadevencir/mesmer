@@ -9,7 +9,6 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   BackArrow,
-  ReadIcon,
   ListenIcon,
   WatchIcon,
 } from "./Icons";
@@ -72,6 +71,10 @@ const ExerciseDetailsDialog = ({ children, exercise }) => {
   const stepsCount = Array.isArray(exercise.steps)
     ? exercise.steps.length
     : 0;
+  const categoryNames =
+    Array.isArray(exercise.categoryNames) && exercise.categoryNames.length
+      ? exercise.categoryNames
+      : [exercise.categoryName || exercise.category].filter(Boolean);
 
   return (
     <Dialog>
@@ -106,11 +109,21 @@ const ExerciseDetailsDialog = ({ children, exercise }) => {
               <ReadOnlyTextArea value={exercise.description} />
             </div>
 
+            {exercise.image && (
+              <div>
+                <Label>Image</Label>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={exercise.image}
+                  alt={exercise.title}
+                  className="w-full rounded-[12px] max-h-[220px] object-cover bg-gray-50 border border-[#E5E7EB]"
+                />
+              </div>
+            )}
+
             <div>
-              <Label>Category</Label>
-              <ReadOnlyField
-                value={exercise.categoryName || exercise.category}
-              />
+              <Label>Categories</Label>
+              <ReadOnlyField value={categoryNames.join(", ")} />
             </div>
 
             <div>
@@ -118,6 +131,21 @@ const ExerciseDetailsDialog = ({ children, exercise }) => {
               <ReadOnlyField
                 value={exercise.duration ? `${exercise.duration} mins` : ""}
               />
+            </div>
+
+            <div>
+              <Label>WHY</Label>
+              <ReadOnlyTextArea value={exercise.whatItIs} />
+            </div>
+
+            <div>
+              <Label>HOW</Label>
+              <ReadOnlyTextArea value={exercise.whatYouDo} />
+            </div>
+
+            <div>
+              <Label>WHEN</Label>
+              <ReadOnlyTextArea value={exercise.whenToUse} />
             </div>
 
             <div>
@@ -130,27 +158,7 @@ const ExerciseDetailsDialog = ({ children, exercise }) => {
               <ReadOnlyTextArea value={exercise.mesmerFact} />
             </div>
 
-            <div>
-              <Label>What It Is</Label>
-              <ReadOnlyTextArea value={exercise.whatItIs} />
-            </div>
-
-            <div>
-              <Label>What You Do</Label>
-              <ReadOnlyTextArea value={exercise.whatYouDo} />
-            </div>
-
-            <div>
-              <Label>When To Use</Label>
-              <ReadOnlyTextArea value={exercise.whenToUse} />
-            </div>
-
             {/* Media Section */}
-            <MediaField
-              label="Read"
-              icon={<ReadIcon className="w-5 h-5" />}
-              url={exercise.read}
-            />
             <MediaField
               label="Listen"
               icon={<ListenIcon className="w-5 h-5" />}
@@ -173,6 +181,15 @@ const ExerciseDetailsDialog = ({ children, exercise }) => {
                     <StepItem key={index} step={step} index={index} />
                   ))}
                 </div>
+              </>
+            )}
+
+            {exercise.result && (
+              <>
+                <h3 className="text-[18px] font-bold text-[#111827] mt-4">
+                  Result
+                </h3>
+                <ReadOnlyTextArea value={exercise.result} />
               </>
             )}
           </div>

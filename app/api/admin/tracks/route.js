@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifyIdToken } from "@/lib/firebase/auth-server";
+import { verifySessionCookie } from "@/lib/firebase/auth-server";
 import { getAdminFirestore } from "@/lib/firebase/admin";
 
 const SESSION_COOKIE_NAME = "mesmer_session";
@@ -33,7 +33,7 @@ function categoryNameOf(data) {
 async function requireAdmin() {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  const decoded = token ? await verifyIdToken(token) : null;
+  const decoded = token ? await verifySessionCookie(token) : null;
   return decoded;
 }
 
