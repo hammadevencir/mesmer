@@ -1,22 +1,48 @@
 rules_version = '2';
 
-// This repo previously had no storage.rules at all, so whatever rules exist
-// today live only in the Firebase Console and are invisible here. If those
-// console rules don't grant writes to a signed-in admin, every upload from
-// the admin panel (CreateExerciseDialog / EditExerciseDialog) fails
-// regardless of file format — which matches "video upload fails as well"
-// and "converted file also fails" in the reported issue.
-//
 // Deploy with: firebase deploy --only storage
 service firebase.storage {
   match /b/{bucket}/o {
-    // Exercise media (images/audio/video) uploaded from the admin panel.
-    // Publicly readable so the mobile app can play it back without a
-    // Firebase Auth session; only signed-in users (i.e. admins, who are the
-    // only ones with admin-panel credentials) can write.
-    match /exercises/{allPaths=**} {
+
+    // User files (e.g. profile avatars) — only the owning user may write.
+    match /users/{userId}/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType != null
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Exercise images, uploaded from the admin panel.
+    match /exercises/images/{fileName} {
+      allow read: if true;
+
+      allow write: if request.auth != null
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType != null
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Exercise audio files, uploaded from the admin panel.
+    match /exercises/audio/{fileName} {
+      allow read: if true;
+
+      allow write: if request.auth != null
+                   && request.resource.size < 20 * 1024 * 1024
+                   && request.resource.contentType != null
+                   && request.resource.contentType.matches('audio/.*');
+    }
+
+    // Exercise video files, uploaded from the admin panel.
+    match /exercises/video/{fileName} {
+      allow read: if true;
+
+      allow write: if request.auth != null
+                   && request.resource.size < 200 * 1024 * 1024
+                   && request.resource.contentType != null
+                   && request.resource.contentType.matches('video/.*');
     }
 
     // Default: no access unless a more specific rule above matches.
