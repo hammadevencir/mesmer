@@ -195,6 +195,32 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none; /* Safari and Chrome */
   }
+
+  /*
+   * Always-visible slim scrollbar. The tall create/edit dialogs used
+   * `scrollbar-hide`, which left no visual cue that more of the form sat
+   * below the fold — unusable on a non-touch screen.
+   */
+  .scrollbar-thin {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: #C9A6E8 #F3E8FF; /* thumb, track */
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: #F3E8FF;
+    border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #C9A6E8;
+    border: 2px solid #F3E8FF;
+    border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #8F00FF;
+  }
 }
 
 /* ═══════════════════════════════════════════════════

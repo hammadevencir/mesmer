@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySessionCookie } from "@/lib/firebase/auth-server";
 import { getAdminFirestore } from "@/lib/firebase/admin";
-import { normalizeCategoryName } from "@/lib/categories";
+import {
+  normalizeCategoryName,
+  orderForCategory,
+  sanitizeCategoryOrders,
+} from "@/lib/categories";
 
 const SESSION_COOKIE_NAME = "mesmer_session";
 const EXERCISES_COLLECTION = "exercises";
@@ -47,6 +51,12 @@ function mapExerciseDoc(id, data) {
     result: data?.result ?? "",
     steps: Array.isArray(data?.steps) ? data.steps : [],
     order: data?.order ?? 0,
+    // Per-category positions; `order` stays the default for any category
+    // with no explicit override. See lib/categories.js.
+    categoryOrders:
+      data?.categoryOrders && typeof data.categoryOrders === "object"
+        ? data.categoryOrders
+        : {},
     isDraft: data?.isDraft ?? false,
     isOnBoarding: data?.isOnBoarding === true,
   };
@@ -92,13 +102,24 @@ export async function GET(request) {
       mapExerciseDoc(doc.id, doc.data()),
     );
 
-    const exercises = categoryFilter
-      ? allExercises.filter(
-          (ex) =>
-            ex.categoryNames.includes(categoryFilter) ||
-            ex.categoryName === categoryFilter,
-        )
-      : allExercises;
+    const exercises = (
+      categoryFilter
+        ? allExercises.filter(
+            (ex) =>
+              ex.categoryNames.includes(categoryFilter) ||
+              ex.categoryName === categoryFilter,
+          )
+        : allExercises
+    )
+      .slice()
+      // With a category selected, order within that category; otherwise
+      // fall back to the exercise default order.
+      .sort(
+        (a, b) =>
+          orderForCategory(a, categoryFilter) -
+            orderForCategory(b, categoryFilter) ||
+          String(a.title).localeCompare(String(b.title)),
+      );
 
     const categoryCounts = {};
     let onboardingCount = 0;
@@ -188,6 +209,7 @@ export async function POST(request) {
       result: body.result || "",
       steps: Array.isArray(body.steps) ? body.steps : [],
       order: Number(body.order) || 0,
+      categoryOrders: sanitizeCategoryOrders(body.categoryOrders, categoryNames),
       isDraft: body.isDraft ?? false,
       isOnBoarding,
       createdAt: new Date().toISOString(),
@@ -277,6 +299,7 @@ export async function PUT(request) {
       result: body.result || "",
       steps: Array.isArray(body.steps) ? body.steps : [],
       order: Number(body.order) || 0,
+      categoryOrders: sanitizeCategoryOrders(body.categoryOrders, categoryNames),
       isDraft: body.isDraft ?? false,
       isOnBoarding,
       updatedAt: new Date().toISOString(),

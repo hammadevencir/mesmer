@@ -101,7 +101,7 @@ const CreateExerciseStepsDialog = ({ children }) => {
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
           <div className="flex flex-col gap-2">
             <h3 className="text-[18px] font-bold text-[#111827]">
               Exercise Steps <span className="text-[#8F00FF] ml-1">*</span>

@@ -12,6 +12,7 @@ import {
   ListenIcon,
   WatchIcon,
 } from "./Icons";
+import { orderForCategory } from "@/lib/categories";
 
 const Label = ({ children }) => (
   <label
@@ -116,7 +117,7 @@ const ExerciseDetailsDialog = ({ children, exercise }) => {
                 <img
                   src={exercise.image}
                   alt={exercise.title}
-                  className="w-full rounded-[12px] max-h-[220px] object-cover bg-gray-50 border border-[#E5E7EB]"
+                  className="w-full rounded-[12px] max-h-[220px] object-contain bg-gray-50 border border-[#E5E7EB]"
                 />
               </div>
             )}
@@ -125,6 +126,19 @@ const ExerciseDetailsDialog = ({ children, exercise }) => {
               <Label>Categories</Label>
               <ReadOnlyField value={categoryNames.join(", ")} />
             </div>
+
+            {categoryNames.length > 0 && (
+              <div>
+                <Label>Order within each category</Label>
+                <ReadOnlyField
+                  value={categoryNames
+                    .map(
+                      (name) => `${name}: ${orderForCategory(exercise, name)}`,
+                    )
+                    .join("  ·  ")}
+                />
+              </div>
+            )}
 
             <div>
               <Label>Duration</Label>

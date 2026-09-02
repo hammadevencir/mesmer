@@ -8,6 +8,7 @@
     "start": "next start",
     "seed:admin": "node scripts/seed-admin.js",
     "fix:categories": "node scripts/fix-categories.js",
+    "fix:media-headers": "node scripts/fix-media-cache-headers.js",
     "functions:deploy": "firebase deploy --only functions:stripeSubscriptionWebhook,functions:subscriptionHealth",
     "functions:logs": "firebase functions:log"
   },

@@ -119,7 +119,7 @@ const ExerciseCard = ({
             <img
               src={exercise.image}
               alt=""
-              className="w-full h-24 object-cover rounded-[8px] mb-2 shrink-0"
+              className="w-full h-24 object-contain rounded-[8px] mb-2 shrink-0 bg-white"
             />
           )}
           <p

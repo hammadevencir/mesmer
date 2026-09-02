@@ -12,6 +12,9 @@ import { BackArrow, CheckmarkIcon, TrashIconWhite } from "./Icons";
 import { cn } from "@/lib/utils";
 import { getClientStorage } from "@/lib/firebase/client";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { uploadMetadata } from "@/lib/firebase/upload-metadata";
+import FormattedTextField from "./FormattedTextField";
+import CategoryOrderFields from "./CategoryOrderFields";
 
 const Label = ({ children, required }) => (
   <label
@@ -212,7 +215,7 @@ const FileUploadField = ({ label, accept, value, onChange, uploading, progress, 
               <img
                 src={value}
                 alt="Exercise cover"
-                className="w-full rounded-[8px] max-h-[200px] object-cover bg-white"
+                className="w-full rounded-[8px] max-h-[200px] object-contain bg-white"
               />
             )}
           </div>
@@ -246,7 +249,10 @@ const CreateExerciseDialog = ({
   };
 
   const [formData, setFormData] = useState(initialForm);
+  // Set by any edit; drives the "discard unsaved changes?" guard below.
+  const [dirty, setDirty] = useState(false);
   const [categoryNames, setCategoryNames] = useState([]);
+  const [categoryOrders, setCategoryOrders] = useState({});
   const [steps, setSteps] = useState([{ title: "", description: "" }]);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
@@ -280,16 +286,37 @@ const CreateExerciseDialog = ({
   }, [open]);
 
   const handleChange = (field, value) => {
+    setDirty(true);
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const toggleCategory = (name) => {
+    setDirty(true);
     setCategoryNames((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     );
+    // Drop the per-category order with the category, so an untagged
+    // category cannot leave a stale position behind.
+    setCategoryOrders((prev) => {
+      if (!(name in prev)) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+
+  const handleCategoryOrderChange = (name, value) => {
+    setDirty(true);
+    setCategoryOrders((prev) => {
+      const next = { ...prev };
+      if (value === "" || value === null) delete next[name];
+      else next[name] = Number(value) || 0;
+      return next;
+    });
   };
 
   const handleStepChange = (index, field, value) => {
+    setDirty(true);
     setSteps((prev) => {
       const newSteps = [...prev];
       newSteps[index] = { ...newSteps[index], [field]: value };
@@ -298,11 +325,13 @@ const CreateExerciseDialog = ({
   };
 
   const addStep = () => {
+    setDirty(true);
     setSteps([...steps, { title: "", description: "" }]);
   };
 
   const deleteStep = (index) => {
     if (steps.length > 1) {
+      setDirty(true);
       setSteps(steps.filter((_, i) => i !== index));
     }
   };
@@ -322,7 +351,7 @@ const CreateExerciseDialog = ({
     setProgress(0);
 
     try {
-      const uploadTask = uploadBytesResumable(storageRef, file);
+      const uploadTask = uploadBytesResumable(storageRef, file, uploadMetadata(file));
 
       await new Promise((resolve, reject) => {
         uploadTask.on(
@@ -363,6 +392,7 @@ const CreateExerciseDialog = ({
         categoryNames,
         categoryIds: selectedCats.map((c) => c.id),
         order: Number(formData.order) || 0,
+        categoryOrders,
         duration: Number(formData.duration) || 0,
         isMood: true,
         isDraft,
@@ -372,7 +402,9 @@ const CreateExerciseDialog = ({
       // Reset form only after a successful save.
       setFormData(initialForm);
       setCategoryNames([]);
+      setCategoryOrders({});
       setSteps([{ title: "", description: "" }]);
+      setDirty(false);
       setOpen(false);
     } catch (e) {
       setError(e.message || "Failed to create exercise");
@@ -384,12 +416,33 @@ const CreateExerciseDialog = ({
   const moodCategories = fetchedCategories.filter((c) => c.type === "mood");
   const improveCategories = fetchedCategories.filter((c) => c.type !== "mood");
 
+  /**
+   * Clicking the overlay or pressing Escape used to bin a part-written
+   * exercise with no warning. Confirm when there is unsaved work.
+   */
+  const requestClose = () => {
+    if (
+      dirty &&
+      !window.confirm(
+        "You have unsaved changes to this exercise. Discard them and close?",
+      )
+    ) {
+      return;
+    }
+    setDirty(false);
+    setOpen(false);
+  };
+
   return (
     <Dialog
       open={open}
       onOpenChange={(v) => {
-        setOpen(v);
-        if (v) setError("");
+        if (!v) {
+          requestClose();
+          return;
+        }
+        setOpen(true);
+        setError("");
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -408,7 +461,7 @@ const CreateExerciseDialog = ({
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
           <div className="flex flex-col gap-2">
             <h3 className="text-[18px] font-bold text-[#111827]">Basics</h3>
 
@@ -548,7 +601,7 @@ const CreateExerciseDialog = ({
             </div>
 
             <div>
-              <Label>Order Number</Label>
+              <Label>Default Order Number</Label>
               <div className="relative h-[52px] w-full rounded-[12px] border border-[#E5E7EB] flex items-center bg-white focus-within:border-[#8F00FF] transition-colors overflow-hidden">
                 <input
                   type="number"
@@ -575,6 +628,13 @@ const CreateExerciseDialog = ({
                 </div>
               </div>
             </div>
+
+            <CategoryOrderFields
+              categoryNames={categoryNames}
+              categoryOrders={categoryOrders}
+              defaultOrder={formData.order}
+              onChange={handleCategoryOrderChange}
+            />
 
             <div>
               <Label>Duration</Label>
@@ -606,27 +666,17 @@ const CreateExerciseDialog = ({
               </div>
             </div>
 
-            <div>
-              <Label>The Science</Label>
-              <input
-                type="text"
-                value={formData.theScience}
-                onChange={(e) => handleChange("theScience", e.target.value)}
-                placeholder="Enter"
-                className="w-full h-[52px] rounded-[12px] border border-[#E5E7EB] px-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors placeholder:text-[#9CA3AF]"
-              />
-            </div>
+            <FormattedTextField
+              label="The Science"
+              value={formData.theScience}
+              onChange={(val) => handleChange("theScience", val)}
+            />
 
-            <div>
-              <Label>Mesmer Fact</Label>
-              <input
-                type="text"
-                value={formData.mesmerFact}
-                onChange={(e) => handleChange("mesmerFact", e.target.value)}
-                placeholder="Enter"
-                className="w-full h-[52px] rounded-[12px] border border-[#E5E7EB] px-4 text-[16px] text-[#111827] focus:outline-none focus:border-[#8F00FF] transition-colors placeholder:text-[#9CA3AF]"
-              />
-            </div>
+            <FormattedTextField
+              label="Mesmer Fact"
+              value={formData.mesmerFact}
+              onChange={(val) => handleChange("mesmerFact", val)}
+            />
 
             <FileUploadField
               label="Listen URL"
