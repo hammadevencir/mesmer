@@ -1,4 +1,5 @@
 import React, { useRef } from "react";
+import FormattedText from "./FormattedText";
 
 /**
  * Multi-line text field with light markdown formatting for the exercise
@@ -117,6 +118,17 @@ const FormattedTextField = ({
       </div>
 
       {hint && <p className="text-[12px] text-[#9CA3AF] mt-1">{hint}</p>}
+
+      {/* The textarea holds the raw markers, so show how the copy actually
+          reads — otherwise pressing B just looks like it did nothing. */}
+      {(value || "").trim() && (
+        <div className="mt-2 rounded-[12px] border border-[#F3E8FF] bg-[#FDFAFF] p-3">
+          <p className="text-[11px] uppercase tracking-wide text-[#9CA3AF] mb-1.5">
+            Preview
+          </p>
+          <FormattedText value={value} className="text-[15px] text-[#111827]" />
+        </div>
+      )}
     </div>
   );
 };

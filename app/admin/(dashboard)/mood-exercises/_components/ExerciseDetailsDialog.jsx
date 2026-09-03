@@ -13,6 +13,7 @@ import {
   WatchIcon,
 } from "./Icons";
 import { orderForCategory } from "@/lib/categories";
+import FormattedText from "./FormattedText";
 
 const Label = ({ children }) => (
   <label
@@ -32,6 +33,17 @@ const ReadOnlyField = ({ value, placeholder }) => (
 const ReadOnlyTextArea = ({ value, placeholder }) => (
   <div className="w-full rounded-[12px] border border-[#E5E7EB] p-4 text-[16px] text-[#111827] bg-gray-50 min-h-[80px] whitespace-pre-wrap">
     {value || <span className="text-[#9CA3AF]">{placeholder || "—"}</span>}
+  </div>
+);
+
+/** Same box, but for the fields authored with the markdown toolbar. */
+const ReadOnlyFormatted = ({ value, placeholder }) => (
+  <div className="w-full rounded-[12px] border border-[#E5E7EB] p-4 text-[16px] text-[#111827] bg-gray-50 min-h-[80px]">
+    {(value || "").trim() ? (
+      <FormattedText value={value} />
+    ) : (
+      <span className="text-[#9CA3AF]">{placeholder || "—"}</span>
+    )}
   </div>
 );
 
@@ -164,12 +176,12 @@ const ExerciseDetailsDialog = ({ children, exercise }) => {
 
             <div>
               <Label>The Science</Label>
-              <ReadOnlyTextArea value={exercise.theScience} />
+              <ReadOnlyFormatted value={exercise.theScience} />
             </div>
 
             <div>
               <Label>Mesmer Fact</Label>
-              <ReadOnlyTextArea value={exercise.mesmerFact} />
+              <ReadOnlyFormatted value={exercise.mesmerFact} />
             </div>
 
             {/* Media Section */}
