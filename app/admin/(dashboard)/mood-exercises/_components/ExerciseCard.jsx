@@ -13,6 +13,10 @@ const ExerciseCard = ({
   onUpdate,
   onboardingCount = 0,
   maxOnboardingExercises = 3,
+  showTriage = true,
+  triageCount = 0,
+  maxTriageExercises = 4,
+  onTriageMove,
 }) => {
   const stepsCount = Array.isArray(exercise.steps) ? exercise.steps.length : 0;
   const durationDisplay = `${exercise.duration || 0} mins`;
@@ -28,6 +32,10 @@ const ExerciseCard = ({
   const onboardingToggleDisabled =
     !exercise.isOnBoarding &&
     otherOnboardingCount >= maxOnboardingExercises;
+
+  const triagePosition = exercise.isTriage ? exercise.triageOrder : null;
+  const triageToggleDisabled =
+    !exercise.isTriage && triageCount >= maxTriageExercises;
 
   return (
     <ExerciseDetailsDialog exercise={exercise}>
@@ -52,6 +60,11 @@ const ExerciseCard = ({
             {exercise.isOnBoarding && (
               <span className="bg-emerald-50 text-emerald-800 text-[12px] font-semibold py-2 px-2.5 rounded-full shrink-0 border border-emerald-200">
                 Onboarding
+              </span>
+            )}
+            {triagePosition && (
+              <span className="bg-sky-50 text-sky-800 text-[12px] font-semibold py-2 px-2.5 rounded-full shrink-0 border border-sky-200">
+                Triage #{triagePosition}
               </span>
             )}
           </div>
@@ -109,6 +122,56 @@ const ExerciseCard = ({
               }
               aria-label="Toggle onboarding exercise"
             />
+          </div>
+        )}
+
+        {/* Home triage toggle + position */}
+        {!isDraft && showTriage && (
+          <div
+            className="flex items-center justify-between gap-3 py-2 px-1 rounded-[12px] border border-sky-200 bg-sky-50/50 -mt-4"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <span
+              className="text-[13px] text-[#374151]"
+              style={{
+                fontFamily: "'Inter Display', var(--font-inter), sans-serif",
+              }}
+            >
+              Add to Home triage ({triageCount}/{maxTriageExercises})
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {triagePosition && (
+                <select
+                  value={triagePosition}
+                  onChange={(e) =>
+                    onTriageMove?.(Number(e.target.value)).catch((err) =>
+                      alert(err.message || "Failed to change triage order"),
+                    )
+                  }
+                  aria-label="Triage position"
+                  className="h-7 rounded-[8px] border border-sky-300 bg-white px-1.5 text-[13px] text-[#1A1A1A] cursor-pointer"
+                >
+                  {Array.from({ length: triageCount }, (_, i) => i + 1).map(
+                    (pos) => (
+                      <option key={pos} value={pos}>
+                        #{pos}
+                      </option>
+                    ),
+                  )}
+                </select>
+              )}
+              <Switch
+                checked={exercise.isTriage === true}
+                disabled={triageToggleDisabled}
+                onCheckedChange={(checked) =>
+                  onUpdate({ ...exercise, isTriage: checked }).catch((e) =>
+                    alert(e.message || "Failed to update exercise"),
+                  )
+                }
+                aria-label="Toggle Home triage"
+              />
+            </div>
           </div>
         )}
 

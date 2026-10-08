@@ -3,7 +3,7 @@ import { getCategoryType, getCategoryColor } from "@/lib/categories";
 
 const CategoryFilter = ({ categories, activeCategory, onCategoryChange }) => {
   return (
-    <div className="overflow-x-auto scrollbar-hide">
+    <div className="overflow-x-auto scrollbar-thin pb-3">
       <div className="flex justify-start gap-4 min-w-max">
         {categories.map((cat) => {
           const isActive = activeCategory === cat.name;

@@ -12,6 +12,8 @@ const SESSION_COOKIE_NAME = "mesmer_session";
 const EXERCISES_COLLECTION = "exercises";
 /** Maximum exercises allowed with `isOnBoarding: true` at once */
 const MAX_ONBOARDING_EXERCISES = 3;
+/** Maximum exercises in the Home screen triage list at once */
+const MAX_TRIAGE_EXERCISES = 4;
 
 /** Map Firestore exercise doc to a clean shape */
 function mapExerciseDoc(id, data) {
@@ -59,7 +61,72 @@ function mapExerciseDoc(id, data) {
         : {},
     isDraft: data?.isDraft ?? false,
     isOnBoarding: data?.isOnBoarding === true,
+    // Position in the onboarding flow (0 = shown first). null when the
+    // exercise isn't in onboarding or predates explicit ordering.
+    onboardingOrder: Number.isFinite(data?.onboardingOrder)
+      ? data.onboardingOrder
+      : null,
+    // Home screen triage: the ordered list shown when a user taps Calm or
+    // Stress & Overthinking. Any category can be in it. triageOrder is the
+    // 1-based position; null when not in triage.
+    isTriage: data?.isTriage === true,
+    triageOrder: Number.isFinite(data?.triageOrder) ? data.triageOrder : null,
   };
+}
+
+function compareTriageOrder(a, b) {
+  const pos = (ex) =>
+    Number.isFinite(ex.triageOrder) ? ex.triageOrder : Infinity;
+  return (
+    pos(a) - pos(b) || String(a.title).localeCompare(String(b.title))
+  );
+}
+
+/** Current triage exercises, in order. */
+async function getTriageExercises(db) {
+  const snapshot = await db
+    .collection(EXERCISES_COLLECTION)
+    .where("isTriage", "==", true)
+    .get();
+  return snapshot.docs
+    .map((d) => mapExerciseDoc(d.id, d.data()))
+    .sort(compareTriageOrder);
+}
+
+/** Write triageOrder 1..n for `ids` so positions never have gaps. */
+async function writeTriageOrder(db, ids) {
+  if (!ids.length) return;
+  const batch = db.batch();
+  ids.forEach((id, index) => {
+    batch.update(db.collection(EXERCISES_COLLECTION).doc(id), {
+      triageOrder: index + 1,
+    });
+  });
+  await batch.commit();
+}
+
+/** Sort onboarding exercises by explicit position, then title. */
+function compareOnboardingOrder(a, b) {
+  const pos = (ex) =>
+    Number.isFinite(ex.onboardingOrder) ? ex.onboardingOrder : Infinity;
+  return (
+    pos(a) - pos(b) || String(a.title).localeCompare(String(b.title))
+  );
+}
+
+/** Next free onboarding position, i.e. one after the current last one. */
+async function nextOnboardingOrder(db, excludeDocId = null) {
+  const snapshot = await db
+    .collection(EXERCISES_COLLECTION)
+    .where("isOnBoarding", "==", true)
+    .get();
+  let max = -1;
+  snapshot.docs.forEach((d) => {
+    if (d.id === excludeDocId) return;
+    const n = d.data()?.onboardingOrder;
+    if (Number.isFinite(n) && n > max) max = n;
+  });
+  return Math.max(max + 1, snapshot.docs.length);
 }
 
 /**
@@ -138,12 +205,25 @@ export async function GET(request) {
       count: String(count).padStart(2, "0"),
     }));
 
+    // Every onboarding exercise in the order the app shows them, regardless
+    // of the category filter.
+    const onboardingExercises = allExercises
+      .filter((ex) => ex.isOnBoarding)
+      .sort(compareOnboardingOrder);
+
+    const triageExercises = allExercises
+      .filter((ex) => ex.isTriage)
+      .sort(compareTriageOrder);
+
     return NextResponse.json({
       exercises,
       categories,
       total: exercises.length,
       onboardingCount,
+      onboardingExercises,
       maxOnboardingExercises: MAX_ONBOARDING_EXERCISES,
+      triageExercises,
+      maxTriageExercises: MAX_TRIAGE_EXERCISES,
     });
   } catch (e) {
     console.error("GET /api/admin/exercises error:", e);
@@ -212,6 +292,7 @@ export async function POST(request) {
       categoryOrders: sanitizeCategoryOrders(body.categoryOrders, categoryNames),
       isDraft: body.isDraft ?? false,
       isOnBoarding,
+      onboardingOrder: isOnBoarding ? await nextOnboardingOrder(db) : null,
       createdAt: new Date().toISOString(),
     };
 
@@ -305,16 +386,125 @@ export async function PUT(request) {
       updatedAt: new Date().toISOString(),
     };
 
+    // Keep the existing onboarding position on ordinary edits; append newly
+    // added exercises to the end; clear it when removed from onboarding.
+    const existing = await db
+      .collection(EXERCISES_COLLECTION)
+      .doc(body.id)
+      .get();
+    const wasOnBoarding = existing.data()?.isOnBoarding === true;
+    if (!isOnBoarding) {
+      updateData.onboardingOrder = null;
+    } else if (!wasOnBoarding) {
+      updateData.onboardingOrder = await nextOnboardingOrder(db, body.id);
+    }
+
+    // Triage is only touched when the caller sends `isTriage` (the card
+    // switch) — the edit dialog doesn't, so editing keeps the triage slot.
+    // Drafts aren't shown to users, so a draft always leaves triage.
+    const wasTriage = existing.data()?.isTriage === true;
+    const wantTriage =
+      updateData.isDraft !== true &&
+      (body.isTriage !== undefined ? body.isTriage === true : wasTriage);
+    let triageAfter = null; // ids to renumber after the write
+    if (wantTriage && !wasTriage) {
+      const current = await getTriageExercises(db);
+      if (current.length >= MAX_TRIAGE_EXERCISES) {
+        return NextResponse.json(
+          {
+            error: `Home triage holds ${MAX_TRIAGE_EXERCISES} exercises. Remove one from triage first.`,
+          },
+          { status: 400 },
+        );
+      }
+      updateData.isTriage = true;
+      triageAfter = [...current.map((ex) => ex.id), body.id];
+    } else if (!wantTriage && wasTriage) {
+      updateData.isTriage = false;
+      updateData.triageOrder = null;
+      triageAfter = (await getTriageExercises(db))
+        .map((ex) => ex.id)
+        .filter((id) => id !== body.id);
+    }
+
     await db
       .collection(EXERCISES_COLLECTION)
       .doc(body.id)
       .update(updateData);
+    if (triageAfter) await writeTriageOrder(db, triageAfter);
 
     return NextResponse.json({ id: body.id, ...updateData });
   } catch (e) {
     console.error("PUT /api/admin/exercises error:", e);
     return NextResponse.json(
       { error: "Failed to update exercise" },
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * PATCH /api/admin/exercises
+ * Body: { onboardingOrder: [exerciseId, ...] } or { triageOrder: [...] } —
+ * saves the order in which onboarding / Home triage exercises are shown
+ * (first id = shown first). Must list every exercise currently in it.
+ */
+export async function PATCH(request) {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    const decoded = token ? await verifySessionCookie(token) : null;
+    if (!decoded) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const isTriage = Array.isArray(body.triageOrder);
+    const field = isTriage ? "triageOrder" : "onboardingOrder";
+    const ids = Array.isArray(body[field])
+      ? body[field].filter((id) => typeof id === "string" && id)
+      : null;
+    if (!ids || new Set(ids).size !== ids.length) {
+      return NextResponse.json(
+        { error: `${field} must be a list of unique exercise IDs` },
+        { status: 400 },
+      );
+    }
+
+    const db = getAdminFirestore();
+    const snapshot = await db
+      .collection(EXERCISES_COLLECTION)
+      .where(isTriage ? "isTriage" : "isOnBoarding", "==", true)
+      .get();
+    const currentIds = new Set(snapshot.docs.map((d) => d.id));
+    if (
+      ids.length !== currentIds.size ||
+      ids.some((id) => !currentIds.has(id))
+    ) {
+      return NextResponse.json(
+        {
+          error: `The ${isTriage ? "triage" : "onboarding"} exercises changed since this page loaded. Refresh and try again.`,
+        },
+        { status: 409 },
+      );
+    }
+
+    const batch = db.batch();
+    const updatedAt = new Date().toISOString();
+    ids.forEach((id, index) => {
+      batch.update(db.collection(EXERCISES_COLLECTION).doc(id), {
+        // Onboarding positions are 0-based, triage positions 1-based.
+        [field]: isTriage ? index + 1 : index,
+        updatedAt,
+      });
+    });
+    await batch.commit();
+
+    return NextResponse.json({ success: true, [field]: ids });
+  } catch (e) {
+    console.error("PATCH /api/admin/exercises error:", e);
+    return NextResponse.json(
+      { error: "Failed to save order" },
       { status: 500 },
     );
   }
@@ -341,6 +531,11 @@ export async function DELETE(request) {
 
     const db = getAdminFirestore();
     await db.collection(EXERCISES_COLLECTION).doc(exerciseId).delete();
+    // Close the gap if a triage exercise was deleted.
+    await writeTriageOrder(
+      db,
+      (await getTriageExercises(db)).map((ex) => ex.id),
+    );
 
     return NextResponse.json({ success: true, id: exerciseId });
   } catch (e) {

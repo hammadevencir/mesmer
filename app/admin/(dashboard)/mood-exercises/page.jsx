@@ -7,8 +7,12 @@ import CategoryFilter from "./_components/CategoryFilter";
 import ExerciseCard from "./_components/ExerciseCard";
 import MesmerLoader from "@/components/ui/MesmerLoader";
 import CreateExerciseDialog from "./_components/CreateExerciseDialog";
+import OnboardingOrderPanel from "./_components/OnboardingOrderPanel";
+import TriageSummary from "@/components/dashboard/TriageSummary";
 
 const DEFAULT_MAX_ONBOARDING = 3;
+const ONBOARDING_TAB = "Onboarding";
+const DEFAULT_MAX_TRIAGE = 4;
 
 const MoodExercisesPage = () => {
   const [activeTab, setActiveTab] = useState("My Exercises");
@@ -16,8 +20,13 @@ const MoodExercisesPage = () => {
   const [exercises, setExercises] = useState([]);
   const [categories, setCategories] = useState([]);
   const [onboardingCount, setOnboardingCount] = useState(0);
+  const [onboardingExercises, setOnboardingExercises] = useState([]);
   const [maxOnboardingExercises, setMaxOnboardingExercises] = useState(
     DEFAULT_MAX_ONBOARDING,
+  );
+  const [triageExercises, setTriageExercises] = useState([]);
+  const [maxTriageExercises, setMaxTriageExercises] = useState(
+    DEFAULT_MAX_TRIAGE,
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -36,11 +45,16 @@ const MoodExercisesPage = () => {
       const data = await res.json();
       setExercises(data.exercises || []);
       setCategories(data.categories || []);
+      setOnboardingExercises(data.onboardingExercises || []);
       setOnboardingCount(
         typeof data.onboardingCount === "number" ? data.onboardingCount : 0,
       );
       if (typeof data.maxOnboardingExercises === "number") {
         setMaxOnboardingExercises(data.maxOnboardingExercises);
+      }
+      setTriageExercises(data.triageExercises || []);
+      if (typeof data.maxTriageExercises === "number") {
+        setMaxTriageExercises(data.maxTriageExercises);
       }
     } catch (e) {
       console.error("Error fetching exercises:", e);
@@ -94,9 +108,46 @@ const MoodExercisesPage = () => {
     fetchExercises();
   };
 
-  const displayedExercises = exercises.filter((ex) =>
-    activeTab === "Drafts" ? ex.isDraft : !ex.isDraft
-  );
+  const handleSaveOnboardingOrder = async (orderedIds) => {
+    const res = await fetch("/api/admin/exercises", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ onboardingOrder: orderedIds }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to save onboarding order");
+    }
+    fetchExercises();
+  };
+
+  // Move one triage exercise to `position` (1-based); the others shift.
+  const handleTriageMove = async (exerciseId, position) => {
+    const ids = triageExercises
+      .map((ex) => ex.id)
+      .filter((id) => id !== exerciseId);
+    ids.splice(position - 1, 0, exerciseId);
+    const res = await fetch("/api/admin/exercises", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ triageOrder: ids }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to change triage order");
+    }
+    fetchExercises();
+  };
+
+  const isOnboardingTab = activeTab === ONBOARDING_TAB;
+
+  // The Onboarding tab ignores the category filter and shows every
+  // onboarding exercise in the order users see them.
+  const displayedExercises = isOnboardingTab
+    ? onboardingExercises
+    : exercises.filter((ex) =>
+        activeTab === "Drafts" ? ex.isDraft : !ex.isDraft
+      );
 
   return (
     <div className="p-4 md:p-6 flex flex-col gap-4 min-h-screen">
@@ -109,16 +160,34 @@ const MoodExercisesPage = () => {
       />
 
       <Tabs
-        tabs={["My Exercises", "Drafts"]}
+        tabs={["My Exercises", "Drafts", ONBOARDING_TAB]}
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />
 
-      <CategoryFilter
-        categories={categories}
-        activeCategory={activeCategory}
-        onCategoryChange={setActiveCategory}
-      />
+      {isOnboardingTab ? (
+        !loading &&
+        !error && (
+          <OnboardingOrderPanel
+            exercises={onboardingExercises}
+            onSaveOrder={handleSaveOnboardingOrder}
+          />
+        )
+      ) : (
+        <>
+          {activeTab === "My Exercises" && (
+            <TriageSummary
+              exercises={triageExercises}
+              max={maxTriageExercises}
+            />
+          )}
+          <CategoryFilter
+          categories={categories}
+          activeCategory={activeCategory}
+          onCategoryChange={setActiveCategory}
+          />
+        </>
+      )}
 
       {/* Loading State */}
       {loading && (
@@ -177,7 +246,9 @@ const MoodExercisesPage = () => {
               No exercises found
             </p>
             <p className="text-[#6C6C6C] text-[14px]">
-              {activeCategory
+              {isOnboardingTab
+                ? "No exercises are in onboarding yet. Turn on \"Include in onboarding\" on an exercise to add it."
+                : activeCategory
                 ? `No exercises in the "${activeCategory}" category yet.`
                 : "Create your first exercise to get started."}
             </p>
@@ -192,9 +263,15 @@ const MoodExercisesPage = () => {
             <ExerciseCard
               key={exercise.id}
               exercise={exercise}
-              isDraft={activeTab === "Drafts"}
+              isDraft={isOnboardingTab ? exercise.isDraft : activeTab === "Drafts"}
               onboardingCount={onboardingCount}
               maxOnboardingExercises={maxOnboardingExercises}
+              showTriage={!isOnboardingTab}
+              triageCount={triageExercises.length}
+              maxTriageExercises={maxTriageExercises}
+              onTriageMove={(position) =>
+                handleTriageMove(exercise.id, position)
+              }
               onDelete={() => handleDelete(exercise.id)}
               onUpdate={handleUpdate}
             />

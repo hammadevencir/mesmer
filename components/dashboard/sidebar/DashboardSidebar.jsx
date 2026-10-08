@@ -41,7 +41,7 @@ const menuItems = [
     href: "/admin/breathing-exercises",
   },
   {
-    title: "Tracks",
+    title: "Home screen exercises (Triage)",
     icon: TracksIcon,
     href: "/admin/tracks",
   },
