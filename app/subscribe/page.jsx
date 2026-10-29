@@ -137,6 +137,9 @@ function SubscribeContent() {
                 <p className="mt-0.5 text-sm text-muted-foreground">{plan.description}</p>
               </div>
               <div className="text-right">
+                {plan.wasPrice && (
+                  <p className="text-sm text-muted-foreground line-through">{plan.wasPrice}</p>
+                )}
                 <p className="text-lg font-bold text-foreground">{plan.price}</p>
                 <p className="text-xs text-muted-foreground">per {plan.interval}</p>
               </div>
